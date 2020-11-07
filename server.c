@@ -5,62 +5,86 @@
 #include <string.h>
 
 #define SIZE 1024
-#define PORT 8000
+#define HOST 8000
 #define true 1
+
+char src[] = "127.0.0.1";
 
 void exit_function(char *buffer) {
   if (strcmp(buffer, "exit") == 0)
     exit(EXIT_SUCCESS);
 }
 
+void send_file(int socket_fd, char *file_name) {
+  FILE *fp = fopen(file_name, "rb");
+  int n;
+  ssize_t total = 0;
+  char line[SIZE] = {0};
+  if (fp == NULL) {
+    printf("cannot open file\n");
+    exit(EXIT_FAILURE);
+  }
+  while ((n = fread(line, sizeof(char), SIZE, fp)) > 0) {
+    total += n;
+    if (n != SIZE && ferror(fp)) {
+      perror("ferror");
+      exit(EXIT_FAILURE);
+    }
+    if (send(socket_fd, line, n, 0) < 0) {
+      perror("send");
+      exit(EXIT_FAILURE);
+    }
+    memset(line, 0, SIZE);
+  }
+  printf("num bytes = %ld\n", total);
+}
 
 int main(int argc, char const *argv[]) {
-  int server_fd, new_socket, valread;
-  struct sockaddr_in address;
-  int opt = 1;
-  int addrlen = sizeof(address);
+  int socket_fd;
+  char *file_name;
   char buffer[SIZE];
-  char *hello = "Hello from server";
-
-
-  // creating socket file descriptor
-  if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-    perror("socket failed");
-    exit(EXIT_FAILURE);
-  }
-
-  // lost "address already in use" error message
-  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
-                 &opt, sizeof(opt))) {
-      perror("setsockopt");
+  FILE *fp;
+  struct sockaddr_in address;
+  // printf("%d %s\n", argc, argv[1]);
+  if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+      perror("socket");
       exit(EXIT_FAILURE);
   }
+  memset(&address, 0, sizeof(address));
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons( PORT );
-
-  if (bind(server_fd, (struct sockaddr *)&address,
-           sizeof(address)) < 0) {
-    perror("bind failed");
+  address.sin_port = htons(HOST);
+  if (inet_pton(AF_INET, src, &address.sin_addr) < 0) {
+    perror("inet_pton");
+    exit(EXIT_FAILURE);
+  }
+  if (connect(socket_fd, (const struct sockaddr *) &address,
+              sizeof(address)) < 0) {
+    perror("connect");
     exit(EXIT_FAILURE);
   }
 
-  if (listen(server_fd, 3)) {
-    perror("listen");
-    exit(EXIT_FAILURE);
-  }
+  if (argc > 1) {
+    if (strcmp(argv[0], "get") == 0) {
 
-  if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
-      (socklen_t *)&addrlen)) < 0) {
-    perror("accept");
-    exit(EXIT_FAILURE);
+    } else {
+        // error
+        exit(EXIT_FAILURE);
+      }
   }
+  //send number of files
+  for (size_t i = 1; i < argc; i++) {
 
-  while (true) {
-    valread = read(new_socket, buffer, SIZE);
-    printf("%s\n", buffer);
-    //send file
-    exit_function(buffer);
+    file_name = basename(argv[i]);
+    printf("file %s\n", file_name);
+    memset(buffer, 0, sizeof(buffer));
+    strncpy(buffer, file_name, strlen(file_name));
+    // send file name
+    if (send(socket_fd, buffer, SIZE, 0) < 0) {
+      perror("send");
+      exit(EXIT_FAILURE);
+    }
+    send_file(socket_fd, file_name);
+
   }
 
   return 0;
