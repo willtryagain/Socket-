@@ -1,9 +1,11 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <string.h>
+#include <errno.h>
 
 #define SIZE 1000
 #define HOST 8000
@@ -21,6 +23,30 @@ void get_args(char *command, int *count, char args[][SIZE]) {
 	int n = strlen(args[cnt-1]);
 	args[cnt-1][n-1] = 0;
 	*count = cnt;
+}
+
+int send_int(int num, int fd) {
+    int32_t conv = htonl(num);
+    char *data = (char*)&conv;
+    int left = sizeof(conv);
+    int rc;
+    do {
+        rc = write(fd, data, left);
+        if (rc < 0) {
+            if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                // use select() or epoll() to wait for the socket to be writable again
+            }
+            else if (errno != EINTR) {
+                return -1;
+            }
+        }
+        else {
+            data += rc;
+            left -= rc;
+        }
+    }
+    while (left > 0);
+    return 0;
 }
 
 void write_file(int socket_fd, char *file_name) {
@@ -48,11 +74,12 @@ void write_file(int socket_fd, char *file_name) {
 // 		//get progress
 // }
 
-int main(int argc, char const *argv[]) {
+int main(int32_t argc, char const *argv[]) {
 	struct sockaddr_in client_addr, server_addr;
 	socklen_t addr_len;
 	int socket_fd, connect_fd;
 	char file_name[SIZE] = {0};
+	char buffer[SIZE];
 	struct sockaddr_in serv_addr;
 	if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("socket");
@@ -84,6 +111,13 @@ int main(int argc, char const *argv[]) {
 	}
 	close(socket_fd);
 
+	int conv = htonl(argc);
+	printf("%d\n", conv);
+	write(connect_fd, &conv, sizeof(conv));
+
+	for (size_t i = 1; i < argc; i++) {
+
+	}
 	if (recv(connect_fd, file_name, SIZE, 0) < 0) {
 		perror("recv");
 		exit(EXIT_FAILURE);

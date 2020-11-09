@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <string.h>
+#include <errno.h>
 
 #define SIZE 1024
 #define HOST 8000
@@ -13,6 +15,32 @@ char src[] = "127.0.0.1";
 void exit_function(char *buffer) {
   if (strcmp(buffer, "exit") == 0)
     exit(EXIT_SUCCESS);
+}
+
+int receive_int(int *num, int fd)
+{
+    int32_t ret;
+    char *data = (char*)&ret;
+    int left = sizeof(ret);
+    int rc;
+    do {
+        rc = read(fd, data, left);
+        if (rc <= 0) { /* instead of ret */
+            if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                // use select() or epoll() to wait for the socket to be readable again
+            }
+            else if (errno != EINTR) {
+                return -1;
+            }
+        }
+        else {
+            data += rc;
+            left -= rc;
+        }
+    }
+    while (left > 0);
+    *num = ntohl(ret);
+    return 0;
 }
 
 void send_file(int socket_fd, char *file_name) {
@@ -71,21 +99,26 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
       }
   }
-  //send number of files
-  for (size_t i = 1; i < argc; i++) {
 
-    file_name = basename(argv[i]);
-    printf("file %s\n", file_name);
+  int num = -1;
+  read(socket_fd, &num, sizeof(num));
+  printf("%d\n", ntohl(num));
+
+  //send number of files
+  // for (size_t i = 1; i < argc; i++) {
+  //
+    file_name = basename("file.txt");
+  //   printf("file %s\n", file_name);
     memset(buffer, 0, sizeof(buffer));
     strncpy(buffer, file_name, strlen(file_name));
     // send file name
-    if (send(socket_fd, buffer, SIZE, 0) < 0) {
+    if (send(socket_fd,buffer, SIZE, 0) < 0) {
       perror("send");
       exit(EXIT_FAILURE);
     }
-    send_file(socket_fd, file_name);
-
-  }
+  //   send_file(socket_fd, file_name);
+  //
+  // }
 
   return 0;
 }
