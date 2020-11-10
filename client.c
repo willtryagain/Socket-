@@ -13,11 +13,14 @@
 
 #define SERVER_TCP_PORT 3000
 #define	BUFLEN 1000000
+#define SIZE 1000000
+
+#define min(a, b) a < b? a:b
 
 int main(int argc, char *argv[])
 {
 	char	*host = "localhost"; /* host to use if none supplied */
-	char	*bp, sbuf[BUFLEN], rbuf[BUFLEN], path[BUFLEN];
+	char	*bp, sbuf[BUFLEN+5], rbuf[BUFLEN+5], path[BUFLEN+5];
 	long long int 	port, bytes_to_read;
 	int		sd, n, quit = 1; /* socket descriptor and socket type */
 	FILE	*fp;
@@ -28,7 +31,7 @@ int main(int argc, char *argv[])
 	struct PDU {
 		char type;
 		long long length;
-		char data[BUFLEN];
+		char data[BUFLEN+5];
 	} rpdu, tpdu;
 
 	switch(argc){
@@ -79,15 +82,56 @@ int main(int argc, char *argv[])
 				tpdu.length = read(0, tpdu.data, BUFLEN-1); // get user message
 				tpdu.data[tpdu.length-1] = '\0';
 				write(sd, (char *)&tpdu, sizeof(tpdu));
-				read(sd, (char *)&rpdu, sizeof(rpdu));
+				int val, n;
+				read(sd, &val, sizeof(val));
+				bytes_to_read = ntohl(val);
+				long long int end = bytes_to_read;
+				long long int len = min(end, SIZE - 1);
+				if (len == 0)
+					return;
+				fp = fopen(tpdu.data, "w");
+				// printf("%d\n", bytes_to_read);
+
+				printf("%s\n", tpdu.data);
+				for (long long int i = 0; i*len <= end; i++) {
+					if (read(sd, (char *)&rpdu, len) < 0) {
+						perror("read");
+						exit(EXIT_FAILURE);
+					}
+					if (fwrite(rpdu.data, sizeof(char), len, fp) < 0) {
+						perror("write 1");
+						exit(EXIT_FAILURE);
+					}
+				}
+				if (end % len > 0) {
+					if (read(sd, (char *)&rpdu, end % len) < 0) {
+						perror("read");
+						exit(EXIT_FAILURE);
+					}
+					if (write(fp, &rpdu.data, end % len) < 0) {
+						perror("write 2");
+						exit(EXIT_FAILURE);
+					}
+				}
+
+				// read(sd, (char *)&rpdu, sizeof(rpdu));
 
 				if (rpdu.type == 'F') {
-					fp = fopen(tpdu.data, "w");
-					fwrite(rpdu.data, sizeof(char), rpdu.length, fp); // write data to file
-					while (rpdu.length == BUFLEN) { // if there is more data to write
-						read(sd, (char *)&rpdu, sizeof(rpdu));
-						fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
-					}
+					// fp = fopen(tpdu.data, "w");
+					// bytes_to_read -=rpdu.length;
+					// fwrite(rpdu.data, sizeof(char), rpdu.length, fp); // write data to file
+					// while (bytes_to_read > 0) {
+					// 	int r = read(sd, (char *)&rpdu, sizeof(rpdu));
+					// 	bytes_to_read -=r;
+					// 	printf("%d %d\n", r, bytes_to_read);
+					//
+					// 	fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
+					// }
+
+					// while (rpdu.length == BUFLEN) { // if there is more data to write
+					// 	read(sd, (char *)&rpdu, sizeof(rpdu));
+					// 	fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
+					// }
 					fclose(fp);
 					printf("Transfer sucessful.\n");
 				} else {
