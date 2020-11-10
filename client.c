@@ -1,144 +1,166 @@
-#include <stdio.h>
-#include <stdint.h>
+
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <stdlib.h>
-#include <netinet/in.h>
-#include <string.h>
 #include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
-#define SIZE 1000
-#define HOST 8000
-#define LISTENPORT 5000
-#define true 1
+#define SERVER_TCP_PORT 3000
+#define	BUFLEN 1000000
 
-void get_args(char *command, int *count, char args[][SIZE]) {
-	int cnt = 0;
-	char *word = strtok(command, " ");
-	while (word != NULL) {
-		printf("%s\n", word);
-		strcpy(args[cnt++], word);
-		word = strtok(NULL, " ");
+int main(int argc, char *argv[])
+{
+	char	*host = "localhost"; /* host to use if none supplied */
+	char	*bp, sbuf[BUFLEN], rbuf[BUFLEN], path[BUFLEN];
+	long long int 	port, bytes_to_read;
+	int		sd, n, quit = 1; /* socket descriptor and socket type */
+	FILE	*fp;
+
+	struct stat fstat;
+	struct hostent *hp; /* pointer to host information entry */
+	struct sockaddr_in server; /* an Internet endpoint address */
+	struct PDU {
+		char type;
+		long long length;
+		char data[BUFLEN];
+	} rpdu, tpdu;
+
+	switch(argc){
+		case 2:
+			host = argv[1];
+			port = SERVER_TCP_PORT;
+			break;
+		case 3:
+			host = argv[1];
+			port = atoi(argv[2]);
+			break;
+		default:
+			fprintf(stderr, "Usage: %s host [port]\n", argv[0]);
+			exit(1);
 	}
-	int n = strlen(args[cnt-1]);
-	args[cnt-1][n-1] = 0;
-	*count = cnt;
-}
 
-int send_int(int num, int fd) {
-    int32_t conv = htonl(num);
-    char *data = (char*)&conv;
-    int left = sizeof(conv);
-    int rc;
-    do {
-        rc = write(fd, data, left);
-        if (rc < 0) {
-            if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-                // use select() or epoll() to wait for the socket to be writable again
-            }
-            else if (errno != EINTR) {
-                return -1;
-            }
-        }
-        else {
-            data += rc;
-            left -= rc;
-        }
-    }
-    while (left > 0);
-    return 0;
-}
-
-void write_file(int socket_fd, char *file_name) {
-	ssize_t n;
-	char buffer[SIZE] = {0};
-	FILE *fp = fopen(file_name, "wb");
-	if (fp == NULL) {
-		printf("fopen\n");
-		exit(EXIT_FAILURE);
+	/* Create a stream socket */
+	if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+		fprintf(stderr, "Can't creat a socket\n");
+		exit(1);
 	}
-	while ((n = recv(socket_fd, buffer, SIZE, 0)) > 0) {
-		if (fwrite(buffer, sizeof(char), n, fp) != n) {
-			perror("fwrite");
-			exit(EXIT_FAILURE);
+
+	bzero((char *)&server, sizeof(struct sockaddr_in));
+	server.sin_family = AF_INET;
+	server.sin_port = htons(port);
+	if (hp = gethostbyname(host))
+		bcopy(hp->h_addr, (char *)&server.sin_addr, hp->h_length);
+	else if (inet_aton(host, (struct in_addr *) &server.sin_addr)){
+		fprintf(stderr, "Can't get server's address\n");
+		exit(1);
+	}
+
+	/* Connecting to the server */
+	if (connect(sd, (struct sockaddr *)&server, sizeof(server)) == -1){
+		fprintf(stderr, "Can't connect \n");
+		exit(1);
+	}
+
+	while (quit) {
+		printf("Download (D), Upload (U), Change Directory (P), List Directory (L), Quit (Q):\n");
+		scanf(" %c", &tpdu.type);
+		tpdu.length = 0; // set default data unit length
+
+		switch(tpdu.type) {
+			/* File Download */
+			case 'D':
+				printf("Enter filename: \n");
+				tpdu.length = read(0, tpdu.data, BUFLEN-1); // get user message
+				tpdu.data[tpdu.length-1] = '\0';
+				write(sd, (char *)&tpdu, sizeof(tpdu));
+				read(sd, (char *)&rpdu, sizeof(rpdu));
+
+				if (rpdu.type == 'F') {
+					fp = fopen(tpdu.data, "w");
+					fwrite(rpdu.data, sizeof(char), rpdu.length, fp); // write data to file
+					while (rpdu.length == BUFLEN) { // if there is more data to write
+						read(sd, (char *)&rpdu, sizeof(rpdu));
+						fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
+					}
+					fclose(fp);
+					printf("Transfer sucessful.\n");
+				} else {
+					fprintf(stderr, "%s", rpdu.data);
+				}
+				break;
+
+			/* File Upload */
+			case 'U':
+				printf("Enter filename:\n");
+				tpdu.length = read(0, tpdu.data, BUFLEN-1); // get user message
+				tpdu.data[tpdu.length-1] = '\0';
+				fp = fopen(tpdu.data, "r"); // open file to be uploaded
+				if (fp == NULL) {
+					fprintf(stderr, "Error: File \"%s\" not found.\n", tpdu.data);
+				} else {
+					write(sd, (char *)&tpdu, sizeof(tpdu)); // make upload request
+					read(sd, (char *)&rpdu, sizeof(rpdu)); // recieve ready signal
+					stat(tpdu.data, &fstat); // get file size
+					bytes_to_read = fstat.st_size;
+					if (rpdu.type = 'R') { // check if server is ready
+						tpdu.type = 'F';
+						while(bytes_to_read > 0) { // send data packets
+							tpdu.length = fread(tpdu.data, sizeof(char), BUFLEN, fp);
+							bytes_to_read -= tpdu.length;
+							write(sd, (char *)&tpdu, sizeof(tpdu));
+							printf("test\n");
+						}
+						printf("File sent.\n");
+					} else {
+						fprintf(stderr, "Error: Server not ready.\n");
+					}
+					fclose(fp);
+				}
+				break;
+
+			/* Change Directory */
+			case 'P':
+				printf("Enter path: \n");
+				n = read(0, tpdu.data, BUFLEN); // get user message
+				tpdu.data[n - 1] = '\0';
+				write(sd, (char *)&tpdu, sizeof(tpdu));
+				read(sd, (char *)&rpdu, sizeof(rpdu));
+				if (rpdu.type = 'R') {
+					printf("Directory change sucessful.\n");
+				} else {
+					fprintf(stderr, "Error: Invalid directory.\n");
+				}
+				break;
+
+			/* List Files */
+			case 'L':
+				write(sd, (char *)&tpdu, sizeof(tpdu)); // request file list
+				char str[100];
+				// read(sd, &str, sizeof(str));
+				// printf("%s\n", str);
+				// recieve file list
+				// sleep(10);
+				if (read(sd, (char *)&rpdu, sizeof(rpdu)) < 0) {
+					perror("read list");
+					exit(1);
+				}
+
+				write(1, rpdu.data, rpdu.length); // display to stdout
+				printf("%d\n", rpdu.length);
+				break;
+
+			/* Quit */
+			case 'Q':
+				quit = 0;
+				break;
 		}
-		memset(buffer, 0, SIZE);
 	}
-}
-
-// void send_file_name(char *file_name) {
-// 		if (send(sock, file_name, strlen(file_name), 0) == -1) {
-// 			perror("send");
-// 			exit(EXIT_FAILURE);
-// 		}
-// 		//get progress
-// }
-
-int main(int32_t argc, char const *argv[]) {
-	struct sockaddr_in client_addr, server_addr;
-	socklen_t addr_len;
-	int socket_fd, connect_fd;
-	char file_name[SIZE] = {0};
-	char buffer[SIZE];
-	struct sockaddr_in serv_addr;
-	if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-		perror("socket");
-		exit(EXIT_FAILURE);
-	}
-
-	memset(&server_addr, 0, sizeof(server_addr));
-
-	server_addr.sin_family = AF_INET;
-	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	server_addr.sin_port = htons(HOST);
-
-	if (bind(socket_fd, (const struct sockaddr *) &server_addr,
-																	sizeof(server_addr)) < 0) {
-		perror("bind");
-		exit(EXIT_FAILURE);
-	}
-
-	if (listen(socket_fd, LISTENPORT) < 0) {
-		perror("listen");
-		exit(EXIT_FAILURE);
-	}
-
-	addr_len = sizeof(client_addr);
-	if ((connect_fd = accept(socket_fd, (struct sockaddr *) &client_addr,
-																											 &addr_len)) < 0) {
-		perror("accept");
-		exit(EXIT_FAILURE);
-	}
-	close(socket_fd);
-
-	int conv = htonl(argc);
-	printf("%d\n", conv);
-	write(connect_fd, &conv, sizeof(conv));
-
-	for (size_t i = 1; i < argc; i++) {
-
-	}
-	if (recv(connect_fd, file_name, SIZE, 0) < 0) {
-		perror("recv");
-		exit(EXIT_FAILURE);
-	}
-	// printf("%s\n", file_name);
-	write_file(connect_fd, file_name);
-	// if (strcmp(argv[1], "get") == 0) {
-	// 	for (size_t i = 2; i < argc; i++) {
-	// 		// send_file_name(args[i]);
-	// 		printf("%s\n", argv[i]);
-	// 	}
-	// }
-	// else if (strcmp(argv[0], "exit") == 0) {
-	// 	exit(EXIT_SUCCESS);
-	// } else {
-	// 	printf("command not recognized\n");
-	// }
-	  //see whether exit or get
-	  //request
-	  //display progress
-	  //print receieved
-	// }
-	return 0;
+	close(sd);
+	return(0);
 }
