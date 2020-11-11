@@ -31,7 +31,7 @@ void change(float p) {
 		time_left[i] = '#';
 }
 
-void write_file(int fd) {
+void write_file(int in_fd) {
   float p = 0;
   int out_fd;
   if ((out_fd = creat(path, S_IRUSR|S_IWUSR|O_TRUNC)) < 0) {
@@ -43,6 +43,10 @@ void write_file(int fd) {
 	if (len == 0)
 		return;
 
-
+  for (ll i = 1; i*len <= end; ++i) {
+  	//cursor to start
+	write(1, "\r", strlen("\r"));
+  
+  }
 
 }
