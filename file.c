@@ -33,7 +33,7 @@ void change(float p) {
 
 void write_file(int in_fd) {
   float p = 0;
-  int out_fd;
+  int out_fd, fd;
   if ((out_fd = creat(path, S_IRUSR|S_IWUSR|O_TRUNC)) < 0) {
     perror("creat");
     return;
@@ -46,7 +46,50 @@ void write_file(int in_fd) {
   for (ll i = 1; i*len <= end; ++i) {
   	//cursor to start
 	write(1, "\r", strlen("\r"));
-  
+	  
+  	//read string
+	if ((fd = read(in_fd, &temp, len)) < 0) {
+		perror("read");
+		return;
+	}
+	if ((fd = write(in_fd, &temp, len)) < 0) {
+		perror("write");
+		return;
+	}
+	//display progress
+	p = (float)i*len*100/end;
+	sprintf(temp, "%.2f%% ", p);
+	change(p);
+	strcat(temp, time_left);
+	fd = write(1, temp, strlen(temp));
+	if ((fd = write(1, temp, strlen(temp))) < 0) {
+		perror("write");
+		return;
+	}	  
+  }
+  if (end%len > 0) {
+	  //cursor to start
+	write(1, "\r", strlen("\r"));
+	  
+  	//read string
+	if ((fd = read(in_fd, &temp, len)) < 0) {
+		perror("read");
+		return;
+	}
+	if ((fd = write(in_fd, &temp, len)) < 0) {
+		perror("write");
+		return;
+	}
+	//display progress
+	p = (float)i*len*100/end;
+	sprintf(temp, "%.2f%% ", p);
+	change(p);
+	strcat(temp, time_left);
+	fd = write(1, temp, strlen(temp));
+	if ((fd = write(1, temp, strlen(temp))) < 0) {
+		perror("write");
+		return;
+	}	  
   }
 
 }
