@@ -13,18 +13,35 @@
 
 #define SERVER_TCP_PORT 3000
 #define	BUFLEN 1000000
-#define SIZE 1000000
+#define	SIZE 1000000
 
-#define min(a, b) a < b? a:b
+#define true 1
 
-int main(int argc, char *argv[])
+
+char args[11][50];
+
+void get_args(char *command, int *count) {
+	int cnt = 0;
+	char *word = strtok(command, " ");
+	while (word != NULL) {
+		// printf("%s\n", word);
+		strcpy(args[cnt++], word);
+		word = strtok(NULL, " ");
+	}
+	int n = strlen(args[cnt-1]);
+	args[cnt-1][n-1] = 0;
+	*count = cnt;
+	// printf("%d\n", *count);
+}
+
+int main(int argc, char const *argv[])
 {
+	int count;
 	char	*host = "localhost"; /* host to use if none supplied */
-	char	*bp, sbuf[BUFLEN+5], rbuf[BUFLEN+5], path[BUFLEN+5];
-	long long int 	port, bytes_to_read;
+	long long int 	port = SERVER_TCP_PORT, bytes_to_read;
 	int		sd, n, quit = 1; /* socket descriptor and socket type */
 	FILE	*fp;
-
+	char command[100];
 	struct stat fstat;
 	struct hostent *hp; /* pointer to host information entry */
 	struct sockaddr_in server; /* an Internet endpoint address */
@@ -34,19 +51,7 @@ int main(int argc, char *argv[])
 		char data[BUFLEN+5];
 	} rpdu, tpdu;
 
-	switch(argc){
-		case 2:
-			host = argv[1];
-			port = SERVER_TCP_PORT;
-			break;
-		case 3:
-			host = argv[1];
-			port = atoi(argv[2]);
-			break;
-		default:
-			fprintf(stderr, "Usage: %s host [port]\n", argv[0]);
-			exit(1);
-	}
+
 
 	/* Create a stream socket */
 	if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -70,140 +75,59 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	while (quit) {
-		printf("Download (D), Upload (U), Change Directory (P), List Directory (L), Quit (Q):\n");
-		scanf(" %c", &tpdu.type);
-		tpdu.length = 0; // set default data unit length
-
-		switch(tpdu.type) {
-			/* File Download */
-			case 'D':
-				printf("Enter filename: \n");
-				tpdu.length = read(0, tpdu.data, BUFLEN-1); // get user message
-				tpdu.data[tpdu.length-1] = '\0';
+	while (true) {
+		printf("Client> ");
+	  fgets(command, 200, stdin);
+	  get_args(command, &count);
+		// printf("%d\n", count);
+		if (strcmp(args[0], "get") == 0) {
+			for (int i = 1; i < count; i++) {
+				//get user message
+				tpdu.length = strlen(args[i]);
+				// tpdu.length = read(0, tpdu.data, BUFLEN-1); //
+				strcpy(tpdu.data, args[i]);
+				tpdu.type = 'D';
 				write(sd, (char *)&tpdu, sizeof(tpdu));
-				int val, n;
+
+				//file size obtain
+				int val;
 				read(sd, &val, sizeof(val));
 				bytes_to_read = ntohl(val);
-				long long int end = bytes_to_read;
-				long long int len = min(end, SIZE - 1);
-				if (len == 0)
-					return;
-				fp = fopen(tpdu.data, "w");
-				// printf("%d\n", bytes_to_read);
+				printf("%d\n", bytes_to_read);
 
-				printf("%s\n", tpdu.data);
-				for (long long int i = 0; i*len <= end; i++) {
-					if (read(sd, (char *)&rpdu, len) < 0) {
-						perror("read");
-						exit(EXIT_FAILURE);
-					}
-					if (fwrite(rpdu.data, sizeof(char), len, fp) < 0) {
-						perror("write 1");
-						exit(EXIT_FAILURE);
-					}
-				}
-				if (end % len > 0) {
-					if (read(sd, (char *)&rpdu, end % len) < 0) {
-						perror("read");
-						exit(EXIT_FAILURE);
-					}
-					if (write(fp, &rpdu.data, end % len) < 0) {
-						perror("write 2");
-						exit(EXIT_FAILURE);
-					}
-				}
-
-				// read(sd, (char *)&rpdu, sizeof(rpdu));
-
-				if (rpdu.type == 'F') {
-					// fp = fopen(tpdu.data, "w");
-					// bytes_to_read -=rpdu.length;
-					// fwrite(rpdu.data, sizeof(char), rpdu.length, fp); // write data to file
-					// while (bytes_to_read > 0) {
-					// 	int r = read(sd, (char *)&rpdu, sizeof(rpdu));
-					// 	bytes_to_read -=r;
-					// 	printf("%d %d\n", r, bytes_to_read);
-					//
-					// 	fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
-					// }
-
-					// while (rpdu.length == BUFLEN) { // if there is more data to write
-					// 	read(sd, (char *)&rpdu, sizeof(rpdu));
-					// 	fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
-					// }
-					fclose(fp);
-					printf("Transfer sucessful.\n");
-				} else {
-					fprintf(stderr, "%s", rpdu.data);
-				}
-				break;
-
-			/* File Upload */
-			case 'U':
-				printf("Enter filename:\n");
-				tpdu.length = read(0, tpdu.data, BUFLEN-1); // get user message
-				tpdu.data[tpdu.length-1] = '\0';
-				fp = fopen(tpdu.data, "r"); // open file to be uploaded
-				if (fp == NULL) {
-					fprintf(stderr, "Error: File \"%s\" not found.\n", tpdu.data);
-				} else {
-					write(sd, (char *)&tpdu, sizeof(tpdu)); // make upload request
-					read(sd, (char *)&rpdu, sizeof(rpdu)); // recieve ready signal
-					stat(tpdu.data, &fstat); // get file size
-					bytes_to_read = fstat.st_size;
-					if (rpdu.type = 'R') { // check if server is ready
-						tpdu.type = 'F';
-						while(bytes_to_read > 0) { // send data packets
-							tpdu.length = fread(tpdu.data, sizeof(char), BUFLEN, fp);
-							bytes_to_read -= tpdu.length;
-							write(sd, (char *)&tpdu, sizeof(tpdu));
-							printf("test\n");
-						}
-						printf("File sent.\n");
-					} else {
-						fprintf(stderr, "Error: Server not ready.\n");
-					}
-					fclose(fp);
-				}
-				break;
-
-			/* Change Directory */
-			case 'P':
-				printf("Enter path: \n");
-				n = read(0, tpdu.data, BUFLEN); // get user message
-				tpdu.data[n - 1] = '\0';
-				write(sd, (char *)&tpdu, sizeof(tpdu));
+				int r1, r2;
+				r1 = r2 = 1;
 				read(sd, (char *)&rpdu, sizeof(rpdu));
-				if (rpdu.type = 'R') {
-					printf("Directory change sucessful.\n");
-				} else {
-					fprintf(stderr, "Error: Invalid directory.\n");
-				}
-				break;
+				// printf("%c\n", rpdu.type);
+				if (rpdu.type == 'F') {
+					fp = fopen(tpdu.data, "w");
+					// printf("in ifs\n");
+					while (r2) {
+						r2 = fwrite(rpdu.data, sizeof(char), rpdu.length, fp);
+						if (r2 == 0)
+							break;
+						r1 = read(sd, (char *)&rpdu, sizeof(rpdu));
+						if (r1 < 0) {
+							perror("read");
+							break;
+						}
+						printf("%f %\r", r1/bytes_to_read);
+					}
+					fclose(fp);
+					printf("100 %\n");
+					printf("Transfer sucessful.\n");
 
-			/* List Files */
-			case 'L':
-				write(sd, (char *)&tpdu, sizeof(tpdu)); // request file list
-				char str[100];
-				// read(sd, &str, sizeof(str));
-				// printf("%s\n", str);
-				// recieve file list
-				// sleep(10);
-				if (read(sd, (char *)&rpdu, sizeof(rpdu)) < 0) {
-					perror("read list");
-					exit(1);
-				}
-
-				write(1, rpdu.data, rpdu.length); // display to stdout
-				printf("%d\n", rpdu.length);
-				break;
-
-			/* Quit */
-			case 'Q':
-				quit = 0;
-				break;
+				} else
+					fprintf(stderr, "error %s", rpdu.data);
+				// printf("%s\n", args[i]);
+			}
 		}
+		else if (strcmp(args[0], "exit") == 0) {
+			exit(EXIT_SUCCESS);
+		}
+	  else
+			printf("command not recognized\n");
+
 	}
 	close(sd);
 	return(0);

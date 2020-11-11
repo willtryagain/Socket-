@@ -59,26 +59,36 @@ int main(int argc, char **argv)
 	listen(sd, 5);
 
 	(void) signal(SIGCHLD, reaper);
+	client_len = sizeof(client);
+	while (1) {
+		new_sd = accept(sd, (struct sockaddr *)&client, &client_len);
+		if(new_sd < 0){
+			fprintf(stderr, "Can't accept client \n");
+			exit(1);
+		}
+		echod(new_sd);
+	}
 
-	while(1) {
+	while(0) {
 		client_len = sizeof(client);
 		new_sd = accept(sd, (struct sockaddr *)&client, &client_len);
 		if(new_sd < 0){
 			fprintf(stderr, "Can't accept client \n");
 			exit(1);
 		}
-		switch (fork()) {
-			/* child */
-			case 0:
-				(void) close(sd);
-				exit(echod(new_sd));
-			/* parent */
-			default:
-				(void) close(new_sd);
-				break;
-			case -1:
-				fprintf(stderr, "fork: error\n");
-		}
+		echod(new_sd);
+		// switch (fork()) {
+		// 	/* child */
+		// 	case 0:
+		// 		(void) close(sd);
+		// 		exit(echod(new_sd));
+		// 	/* parent */
+		// 	default:
+		// 		(void) close(new_sd);
+		// 		break;
+		// 	case -1:
+		// 		fprintf(stderr, "fork: error\n");
+		// }
 	}
 }
 
@@ -94,11 +104,12 @@ int echod(int sd)
 	struct PDU {
 		char type;
 		long long int length;
-		char data[BUFLEN];
+		char data[BUFLEN+5];
 	} rpdu, spdu;
 
 	while (quit) {
 		read(sd, (char *)&rpdu, sizeof(rpdu)); // data from client
+		printf("I read\n");
 		switch(rpdu.type) {
 			/* Download request */
 			case 'D':
@@ -114,12 +125,13 @@ int echod(int sd)
 					stat(rpdu.data, &fstat); // get file size
 					bytes_to_read = fstat.st_size;
 					printf("%lld\n", bytes_to_read);
+					uint32_t un = htonl(bytes_to_read);
+					send(sd, &un, sizeof(uint32_t), 0);
 					while(bytes_to_read > 0) {
 						spdu.length = fread(spdu.data, sizeof(char), BUFLEN, fp);
 						bytes_to_read -= spdu.length;
 						spdu.type = 'F';
 						write(sd, (char *)&spdu, sizeof(spdu));
-						printf("%lld\n", bytes_to_read);
 					}
 					printf("Transfer of \"%s\" sucessful.\n", rpdu.data);
 				}
