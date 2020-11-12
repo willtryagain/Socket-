@@ -11,6 +11,10 @@
 #include <netdb.h>
 #include <fcntl.h>
 
+#ifndef O_LARGEFILE
+#define O_LARGEFILE 0
+#endif
+
 #define min(a, b) a < b? a:b
 #define SIZE 10000
 #define SERVER_TCP_PORT 5000
@@ -24,47 +28,37 @@ struct Data {
 } rpdu, tpdu;
 
 
-void write_file(int in_fd, int out_fd) {
-  int fd;
-  char *end_ptr;
+int read_file(char *file_name, ll size, int in_fd) {
+  int fd, out_fd;
+  long *buffer = (long*) malloc(size * sizeof(long));
+  off_t chunk = 0;
   char line[SIZE];
-  //assuming 20 digits
-  if ((fd = read(in_fd, &line, 20)) < 0) {
-    perror("read");
-    return;
+  if ((out_fd = open(file_name, O_RDWR|O_CREAT)) < 0) {
+    perror("open");
+    exit(1);
   }
-  ll end = strtoll(line, &end_ptr, 10);
-  printf("%lld\n", end);
-  end = 8;
-  ll len = min(end, SIZE-1);
-
-  for (ll i = 1; i*len <= end; i++) {
-    if ((fd = read(in_fd, &line, len)) < 0) {
-			perror("read");
-			return;
-		}
-
-    if ((fd = write(out_fd, &line, len)) < 0) {
-			perror("write");
-			return;
-		}
-  }
-
-  if (end%len > 0) {
-    if ((fd = read(in_fd, &line, end%len)) < 0) {
-			perror("read");
-			return;
-		}
-
-    if ((fd = write(out_fd, &line, end%len)) < 0) {
-			perror("write");
-			return;
+  while (chunk < size) {
+    size_t read_now = read(in_fd, &line, SIZE);
+    if (read_now < 0) {
+      perror("read");
+      exit(1);
     }
+    printf("%s\n", line);
+    if ((fd = write(out_fd, &line, read_now)) < 0) {
+			perror("write");
+			exit(1);
+    }
+    chunk += read_now;
   }
+  close(out_fd);
+  return 1;
 }
 
 int main(int argc, char const *argv[]) {
   char *host = "localhost";
+  char *end_ptr;
+  char line[SIZE];
+  ll end;
   int port = SERVER_TCP_PORT;
   int in_fd, out_fd, sd;
   FILE *fp;
@@ -92,13 +86,14 @@ int main(int argc, char const *argv[]) {
   tpdu.length = read(0, tpdu.data, SIZE-1); // get user message
   tpdu.data[tpdu.length-1] = '\0';
   write(sd, (char *)&tpdu, sizeof(tpdu));
-  if ((out_fd = open("file.txt", O_RDWR|O_CREAT)) < 0) {
-    perror("open");
+  if (read(sd, &line, 20) < 0) {
+    perror("read");
     exit(1);
   }
-  write_file(sd, out_fd);
+  end = strtoll(line, &end_ptr, 10);
+  read_file(tpdu.data, end, sd);
 
-
+  chmod(tpdu.data, S_IRUSR|S_IWUSR);
   // fclose(fp);
   close(sd);
   return 0;
