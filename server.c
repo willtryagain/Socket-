@@ -12,9 +12,9 @@
 #include <fcntl.h>
 
 #define min(a, b) a < b? a:b
-#define SIZE 10000
+#define SIZE 100000
 #define SERVER_TCP_PORT 5000
-
+#define true 1
 typedef long long ll;
 
 
@@ -35,14 +35,14 @@ int read_file(int out_fd, ll size, int in_fd) {
       perror("read");
       exit(1);
     }
-    printf("%s\n", line);
+    // printf("%s\n", line);
     if ((fd = write(out_fd, &line, read_now)) < 0) {
 			perror("write");
 			exit(1);
     }
     chunk += read_now;
   }
-  close(out_fd);
+  // close(out_fd);
   return 1;
 }
 
@@ -88,26 +88,38 @@ int main(int argc, char const *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  if (read(new_sd, (char *)&rpdu, sizeof(rpdu)) < 0) {
-    perror("read");
-    exit(EXIT_FAILURE);
-  }
-  if ((in_fd = open(rpdu.data, O_RDWR)) < 0) {
-    perror("open");
-    exit(EXIT_FAILURE);
-  }
-  if (stat(rpdu.data, &fstat)) {
-    perror("stat");
-    exit(1);
-  }
-  end = fstat.st_size;
-  sprintf(line, "%lld", end);
 
-  if (write(new_sd, &line, 20) < 0) {
-    perror("write");
-    return;
+  while (true) {
+    if (read(new_sd, (char *)&rpdu, sizeof(rpdu)) < 0) {
+      perror("read");
+      exit(EXIT_FAILURE);
+    }
+    if (!strcmp(rpdu.data, "")) {
+      printf("%s,\n", rpdu.data); 
+      continue;
+    }
+    if ((in_fd = open(rpdu.data, O_RDWR)) < 0) {
+      perror("open");
+      exit(EXIT_FAILURE);
+    }
+
+    if (stat(rpdu.data, &fstat)) {
+      perror("stat");
+      exit(1);
+    }
+    end = fstat.st_size;
+    sprintf(line, "%lld", end);
+
+    if (write(new_sd, &line, 20) < 0) {
+      perror("write");
+      return;
+    }
+    printf("readin\n");
+    read_file(new_sd, end, in_fd);
+    printf("readout\n");
   }
-  read_file(new_sd, end, in_fd);
+
+
   // while (end > 0) {
   //   spdu.length = fread(spdu.data, sizeof(char), SIZE, fp);
   //   end -= spdu.length;

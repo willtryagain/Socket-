@@ -16,9 +16,9 @@
 #endif
 
 #define min(a, b) a < b? a:b
-#define SIZE 10000
+#define SIZE 100000
 #define SERVER_TCP_PORT 5000
-
+#define true 1
 typedef long long ll;
 
 
@@ -27,14 +27,29 @@ struct Data {
   char data[SIZE + 1];
 } rpdu, tpdu;
 
+char command[100], args[11][50];
+
+void get_args(char *command, int *count) {
+	int cnt = 0;
+	char *word = strtok(command, " ");
+	while (word != NULL) {
+		// printf("%s\n", word);
+		strcpy(args[cnt++], word);
+		word = strtok(NULL, " ");
+	}
+	int n = strlen(args[cnt-1]);
+	args[cnt-1][n-1] = 0;
+	*count = cnt;
+	// printf("%d\n", *count);
+}
 
 int read_file(char *file_name, ll size, int in_fd) {
   int fd, out_fd;
   long *buffer = (long*) malloc(size * sizeof(long));
   off_t chunk = 0;
   char line[SIZE];
-  if ((out_fd = open(file_name, O_RDWR|O_CREAT)) < 0) {
-    perror("open");
+  if ((out_fd = creat(file_name, 0777)) < 0) {
+    perror("creat");
     exit(1);
   }
   while (chunk < size) {
@@ -43,18 +58,19 @@ int read_file(char *file_name, ll size, int in_fd) {
       perror("read");
       exit(1);
     }
-    printf("%s\n", line);
+    // printf("%s\n", line);
     if ((fd = write(out_fd, &line, read_now)) < 0) {
 			perror("write");
 			exit(1);
     }
     chunk += read_now;
   }
-  close(out_fd);
+  // close(out_fd);
   return 1;
 }
 
 int main(int argc, char const *argv[]) {
+  int count = 0;
   char *host = "localhost";
   char *end_ptr;
   char line[SIZE];
@@ -81,19 +97,35 @@ int main(int argc, char const *argv[]) {
     perror("connect");
     exit(EXIT_FAILURE);
   }
+//diff c/1M.txt s/1M.txt
+  while (true) {
+    printf("\nClient>");
+	  fgets(command, 200, stdin);
+	  get_args(command, &count);
+    if (strcmp(args[0], "get") == 0) {
+			for (int i = 1; i < count; i++) {
+      //file name
+        tpdu.length = strlen(args[i]);
+        strcpy(tpdu.data, args[i]);
 
-  //file name
-  tpdu.length = read(0, tpdu.data, SIZE-1); // get user message
-  tpdu.data[tpdu.length-1] = '\0';
-  write(sd, (char *)&tpdu, sizeof(tpdu));
-  if (read(sd, &line, 20) < 0) {
-    perror("read");
-    exit(1);
+        write(sd, (char *)&tpdu, sizeof(tpdu));
+        if (read(sd, &line, 20) < 0) {
+          perror("read");
+          exit(1);
+        }
+        end = strtoll(line, &end_ptr, 10);
+        read_file(tpdu.data, end, sd);
+
+        chmod(tpdu.data, 0777);
+        printf("Transfer sucessful.\n");
+      }
+    }
+    else if (!strcmp(args[0], "exit"))
+			exit(EXIT_SUCCESS);
+	  else
+			printf("command not recognized\n");
+    printf("iteration\n");
   }
-  end = strtoll(line, &end_ptr, 10);
-  read_file(tpdu.data, end, sd);
-
-  chmod(tpdu.data, S_IRUSR|S_IWUSR);
   // fclose(fp);
   close(sd);
   return 0;
