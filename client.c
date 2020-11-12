@@ -20,6 +20,7 @@
 #define SERVER_TCP_PORT 5000
 #define true 1
 typedef long long ll;
+#define TIME 30
 
 
 struct Data {
@@ -27,7 +28,22 @@ struct Data {
   char data[SIZE + 1];
 } rpdu, tpdu;
 
-char command[100], args[11][50];
+char command[100], args[11][50], time_left[SIZE];
+
+void str_init_() {
+	strcpy(time_left, "[");
+	for (ll i = 1; i <= TIME; ++i)
+		time_left[i] = '*';
+	time_left[TIME+1] = ']';
+	time_left[TIME+2] = '\0';
+}
+
+void change(float p) {
+	str_init_();
+	ll len = (TIME*p)/100;
+	for (ll i = 1; i <= len; ++i)
+		time_left[i] = '#';
+}
 
 void get_args(char *command, int *count) {
 	int cnt = 0;
@@ -47,12 +63,15 @@ int read_file(char *file_name, ll size, int in_fd) {
   int fd, out_fd;
   long *buffer = (long*) malloc(size * sizeof(long));
   off_t chunk = 0;
+  float p;
   char line[SIZE];
   if ((out_fd = creat(file_name, 0777)) < 0) {
     perror("creat");
     exit(1);
   }
+  //cursor to start
   while (chunk < size) {
+    write(1, "\r", strlen("\r"));
     size_t read_now = read(in_fd, &line, SIZE);
     if (read_now < 0) {
       perror("read");
@@ -64,6 +83,16 @@ int read_file(char *file_name, ll size, int in_fd) {
 			exit(1);
     }
     chunk += read_now;
+    // printf("%lf\n", (double)chunk/size);
+    //display progress
+    p = ((double)chunk/size) * 100;
+    sprintf(line, "%.2f%% ", p);
+    change(p);
+    strcat(line, time_left);
+    if (write(1, line, strlen(line)) < 0) {
+      perror("console");
+      return;
+    }
   }
   // close(out_fd);
   return 1;
@@ -99,7 +128,7 @@ int main(int argc, char const *argv[]) {
   }
 //diff c/1M.txt s/1M.txt
   while (true) {
-    printf("\nClient>");
+    printf("Client>");
 	  fgets(command, 200, stdin);
 	  get_args(command, &count);
     if (strcmp(args[0], "get") == 0) {
@@ -117,14 +146,14 @@ int main(int argc, char const *argv[]) {
         read_file(tpdu.data, end, sd);
 
         chmod(tpdu.data, 0777);
-        printf("Transfer sucessful.\n");
+        printf("\nTransfer sucessful.\n");
       }
     }
     else if (!strcmp(args[0], "exit"))
 			exit(EXIT_SUCCESS);
 	  else
 			printf("command not recognized\n");
-    printf("iteration\n");
+    // printf("iteration\n");
   }
   // fclose(fp);
   close(sd);
