@@ -23,58 +23,37 @@ struct Data {
   char data[SIZE + 1];
 } rpdu, spdu;
 
-void  write_file(int out_fd, int in_fd) {
+char line[SIZE];
+
+int read_file(int out_fd, ll size, int in_fd) {
   int fd;
-  ll end, len;
-  char line[SIZE];
-  struct stat fstat;
+  off_t chunk = 0;
 
-  stat(rpdu.data, &fstat);
-  end = fstat.st_size;
-  sprintf(line, "%lld", end);
-
-  if ((fd = write(out_fd, &line, 20)) < 0) {
-    perror("write");
-    return;
-  }
-  printf("%d\n", end);
-
-  len = min(end, SIZE - 1);
-  // spdu.length = fread(spdu.data, sizeof(char), SIZE, fp);
-  // end -= spdu.length;
-
-  for (ll i = 1; i*len <= end; i++) {
-    if ((fd = read(in_fd, &line, len)) < 0) {
-			perror("read");
-			return;
-		}
-
-    if ((fd = write(out_fd, &line, len)) < 0) {
-			perror("write");
-			return;
-		}
-  }
-
-  if (end%len > 0) {
-    if ((fd = read(in_fd, &line, end%len)) < 0) {
-			perror("read");
-			return;
-		}
-
-    if ((fd = write(out_fd, &line, end%len)) < 0) {
-			perror("write");
-			return;
+  while (chunk < size) {
+    size_t read_now = read(in_fd, &line, SIZE);
+    if (read_now < 0) {
+      perror("read");
+      exit(1);
     }
+    printf("%s\n", line);
+    if ((fd = write(out_fd, &line, read_now)) < 0) {
+			perror("write");
+			exit(1);
+    }
+    chunk += read_now;
   }
+  close(out_fd);
+  return 1;
 }
-
 
 int main(int argc, char const *argv[]) {
   int in_fd, sd, new_sd;
   int opt = 1;
   int client_len;
+  ll end;
   int fp;
   int port = SERVER_TCP_PORT;
+  struct stat fstat;
   struct sockaddr_in server;
   struct sockaddr_in client;
 
@@ -113,12 +92,22 @@ int main(int argc, char const *argv[]) {
     perror("read");
     exit(EXIT_FAILURE);
   }
-  if ((in_fd = open(rpdu.data, O_RDONLY)) < 0) {
+  if ((in_fd = open(rpdu.data, O_RDWR)) < 0) {
     perror("open");
     exit(EXIT_FAILURE);
   }
+  if (stat(rpdu.data, &fstat)) {
+    perror("stat");
+    exit(1);
+  }
+  end = fstat.st_size;
+  sprintf(line, "%lld", end);
 
-  write_file(new_sd, in_fd);
+  if (write(new_sd, &line, 20) < 0) {
+    perror("write");
+    return;
+  }
+  read_file(new_sd, end, in_fd);
   // while (end > 0) {
   //   spdu.length = fread(spdu.data, sizeof(char), SIZE, fp);
   //   end -= spdu.length;
